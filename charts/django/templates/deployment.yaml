@@ -96,17 +96,11 @@ spec:
               protocol: TCP
               
           volumeMounts:
-            - name: caddy-config
-              mountPath: /etc/caddy/Caddyfile
-              subPath: Caddyfile
             - name: shared
               mountPath: /srv/{{ .Values.data.staticfiles }}
             - name: shared
               mountPath: /srv/{{ .Values.data.data_media }}
       volumes:
-        - name: caddy-config
-          configMap:
-            name: caddy-config
         - name: shared
           emptyDir: {}
 

@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "website-wefit.fullname" . }}-db-pass
+  labels:
+  {{- include "website-wefit.labels" . | nindent 4 }}
+data:
+  db-password: {{ required "dbPass.dbPassword is required" .Values.dbPass.dbPassword
+    | b64enc | quote }}
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "website-wefit.fullname" . }}-aws-secret-id
+  labels:
+  {{- include "website-wefit.labels" . | nindent 4 }}
+data:
+  AWS_ACCESS_KEY_ID: {{ required "awsSecretId.awsAccessKeyId is required" .Values.awsSecretId.awsAccessKeyId
+    | b64enc | quote }}
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "website-wefit.fullname" . }}-aws-secret-secrets
+  labels:
+  {{- include "website-wefit.labels" . | nindent 4 }}
+data:
+  AWS_SECRET_ACCESS_KEY: {{ required "awsSecretSecrets.awsSecretAccessKey is required"
+    .Values.awsSecretSecrets.awsSecretAccessKey | b64enc | quote }}
+type: Opaque
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "website-wefit.fullname" . }}-website-svc
+  labels:
+  {{- include "website-wefit.labels" . | nindent 4 }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: dev-website.wefactorit.com
+    external-dns.alpha.kubernetes.io/target: hrpd.wefactorit.com
+    external-dns.alpha.kubernetes.io/ttl: "300"
+spec:
+  type: {{ .Values.websiteSvc.type }}
+  selector:
+    app: website
+  {{- include "website-wefit.selectorLabels" . | nindent 4 }}
+  ports:
+	{{- .Values.websiteSvc.ports | toYaml | nindent 2 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "website-wefit.fullname" . }}-website
+  labels:
+  {{- include "website-wefit.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.website.replicas }}
+  selector:
+    matchLabels:
+      app: website
+    {{- include "website-wefit.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: website
+      {{- include "website-wefit.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - env:
+        - name: ENV
+          value: {{ quote .Values.website.website.env.env }}
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: db-password
+              name: {{ include "website-wefit.fullname" . }}-db-pass
+        - name: DB_USER
+          value: {{ quote .Values.website.website.env.dbUser }}
+        - name: DB_NAME
+          value: {{ quote .Values.website.website.env.dbName }}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              key: AWS_ACCESS_KEY_ID
+              name: {{ include "website-wefit.fullname" . }}-aws-secret-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: AWS_SECRET_ACCESS_KEY
+              name: {{ include "website-wefit.fullname" . }}-aws-secret-secrets
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.website.website.image.repository }}:{{ .Values.website.website.image.tag
+          | default .Chart.AppVersion }}
+        name: website
+        ports:
+        - containerPort: 8000
+        resources: {{- toYaml .Values.website.website.resources | nindent 10 }}
+      serviceAccountName: {{ include "website-wefit.fullname" . }}-website-sa
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "website-wefit.fullname" . }}-website
+  labels:
+  {{- include "website-wefit.labels" . | nindent 4 }}
+spec:
+  gateways:
+  - istio-system/central-gateway
+  hosts:
+  - dev-website.wefactorit.com
+  http:
+  - corsPolicy:
+      allowCredentials: true
+      allowHeaders:
+      - X-Requested-With
+      - Content-Type
+      - Accept
+      - Origin
+      allowMethods:
+      - POST
+      - GET
+      - PUT
+      - OPTIONS
+      allowOrigins:
+      - regex: .*
+      exposeHeaders:
+      - X-Expose-Header
+      maxAge: 24h
+    match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: website-svc.dev-website.svc.cluster.local
+        port:
+          number: 80
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "website-wefit.fullname" . }}-website-sa
+  labels:
+  {{- include "website-wefit.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.websiteSa.serviceAccount.annotations | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "website-wefit.fullname" . }}-secret-reader
+  labels:
+  {{- include "website-wefit.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - watch
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "website-wefit.fullname" . }}-read-secrets
+  labels:
+  {{- include "website-wefit.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: '{{ include "website-wefit.fullname" . }}-secret-reader'
+subjects:
+- kind: ServiceAccount
+  name: '{{ include "website-wefit.fullname" . }}-website-sa'
+  namespace: '{{ .Release.Namespace }}'

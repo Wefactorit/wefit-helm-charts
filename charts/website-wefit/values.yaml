@@ -1,0 +1,33 @@
+awsSecretId:
+  awsAccessKeyId: ""
+awsSecretSecrets:
+  awsSecretAccessKey: ""
+dbPass:
+  dbPassword: ""
+kubernetesClusterDomain: cluster.local
+website:
+  replicas: 1
+  website:
+    env:
+      dbName: hordna
+      dbUser: hordna
+      env: DEV
+    image:
+      repository: wefit/website
+      tag: latest
+    resources:
+      limits:
+        cpu: "1"
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+websiteSa:
+  serviceAccount:
+    annotations: {}
+websiteSvc:
+  ports:
+  - name: http-website
+    port: 80
+    targetPort: 8000
+  type: ClusterIP
